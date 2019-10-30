@@ -1,0 +1,90 @@
+service: aws-brew-bus
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  region: us-east-1
+  profile: default
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - s3:PutObject
+        - s3:PutBucketAcl
+        - s3:PutBucketCors
+      Resource: "arn:aws:s3:::directions-bucket/*"
+    - Effect: "Allow"
+      Action:
+        - cloudfront:CreateInvalidation
+      Resource: "*"
+
+functions:
+  getDirectionsHome:
+    handler: handler.getDirectionsHome
+    events:
+      - schedule: cron(0/10 16-18 ? * MON-FRI *)
+  getDirectionsWork:
+    handler: handler.getDirectionsWork
+    events:
+      - schedule: cron(0/10 8-10 ? * MON-FRI *)
+
+resources:
+  Resources:
+    BrewBusBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: PublicRead
+        BucketName: directions-bucket
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders:
+                - "*"
+              AllowedMethods:
+                - GET
+                - HEAD
+              AllowedOrigins:
+                - "*"
+
+    BrewBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: directions-bucket
+        PolicyDocument:
+          Statement:
+            - Action:
+                - s3:GetObject
+              Effect: "Allow"
+              Resource:
+                Fn::Join:
+                  - ""
+                  - - "arn:aws:s3:::"
+                    - Ref: BrewBusBucket
+                    - "/*"
+              Principal: "*"
+
+    BrewBusCloudFront:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          Origins:
+            - Id: BrewBucketCloudFront
+              DomainName: directions-bucket.s3.amazonaws.com
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            DefaultTTL:
+              - 0
+            ForwardedValues:
+              Headers:
+                - "*"
+              QueryString: "false"
+              Cookies:
+                Forward: none
+            TargetOriginId: BrewBucketCloudFront
+            ViewerProtocolPolicy: https-only
